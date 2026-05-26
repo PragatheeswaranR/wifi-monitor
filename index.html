@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>WiFi Speed Monitor</title>
+
+  <!-- PWA Meta -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="WiFi Monitor" />
+  <meta name="theme-color" content="#010409" />
+  <link rel="manifest" href="manifest.json" />
+
+  <!-- Chart.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #010409;
+      --surface:  #0d1117;
+      --card:     #161b22;
+      --border:   #21262d;
+      --muted:    #8b949e;
+      --text:     #e6edf3;
+      --blue:     #58a6ff;
+      --green:    #3fb950;
+      --yellow:   #e3b341;
+      --red:      #f85149;
+      --safe-top: env(safe-area-inset-top, 0px);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      overflow-x: hidden;
+    }
+
+    body {
+      padding-top: calc(var(--safe-top) + 16px);
+      padding-bottom: 32px;
+      padding-left: 16px;
+      padding-right: 16px;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    .live-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      animation: pulse 2s infinite;
+      margin-right: 8px;
+      flex-shrink: 0;
+      margin-top: 4px;
+    }
+    .live-row { display: flex; align-items: center; margin-bottom: 4px; }
+    .live-label { font-size: 10px; color: var(--green); letter-spacing: 3px; text-transform: uppercase; }
+    h1 { font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800; letter-spacing: -1px; line-height: 1; }
+    .subtitle { color: var(--muted); font-size: 10px; margin-top: 5px; letter-spacing: 1px; }
+
+    .upload-btn {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--blue);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: background 0.2s;
+      white-space: nowrap;
+      margin-top: 4px;
+    }
+    .upload-btn:hover { background: #21262d; }
+    #csv-input { display: none; }
+
+    /* ── STAT CARDS ── */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; right: 0;
+      width: 70px; height: 70px;
+      border-radius: 50%;
+      background: radial-gradient(circle at top right, var(--accent-color, transparent), transparent 70%);
+      opacity: 0.15;
+    }
+    .card-label { font-size: 9px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+    .card-value { font-size: 30px; font-weight: 700; line-height: 1; }
+    .card-unit { font-size: 12px; color: var(--muted); margin-left: 4px; }
+    .card-sub { font-size: 9px; color: var(--muted); margin-top: 6px; }
+
+    /* ── CHART SECTION ── */
+    .section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-size: 10px; color: var(--muted);
+      letter-spacing: 2px; text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .toggle-row { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+    .toggle-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      padding: 5px 14px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: all 0.2s;
+    }
+    .toggle-btn.active-dl  { background: #58a6ff18; border-color: var(--blue);   color: var(--blue); }
+    .toggle-btn.active-ul  { background: #3fb95018; border-color: var(--green);  color: var(--green); }
+    .toggle-btn.active-png { background: #e3b34118; border-color: var(--yellow); color: var(--yellow); }
+
+    .chart-wrap { position: relative; height: 220px; }
+    .chart-legend { display: flex; gap: 16px; margin-top: 12px; font-size: 10px; color: var(--muted); }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+
+    /* ── TABLE ── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th {
+      padding: 8px 12px; text-align: left;
+      color: var(--muted); font-weight: 400;
+      font-size: 10px; letter-spacing: 1px;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 9px 12px; border-bottom: 1px solid #21262d22; }
+    tr.slow-row { background: #f8514908; }
+    .badge {
+      display: inline-block;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 9px;
+      letter-spacing: 1px;
+    }
+    .badge-ok   { background: #3fb95022; color: var(--green); border: 1px solid #3fb95044; }
+    .badge-slow { background: #f8514922; color: var(--red);   border: 1px solid #f8514944; }
+
+    /* ── FOOTER ── */
+    .footer { text-align: center; color: #484f58; font-size: 10px; margin-top: 24px; letter-spacing: 1px; line-height: 1.8; }
+
+    /* ── INSTALL BANNER ── */
+    #install-banner {
+      display: none;
+      background: #161b22;
+      border: 1px solid #58a6ff44;
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      font-size: 11px;
+      color: var(--blue);
+      align-items: center;
+      gap: 10px;
+    }
+    #install-banner button {
+      margin-left: auto;
+      background: var(--blue);
+      color: #010409;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .card, .section { animation: fadeUp 0.5s ease both; }
+    .card:nth-child(1) { animation-delay: 0.05s; }
+    .card:nth-child(2) { animation-delay: 0.10s; }
+    .card:nth-child(3) { animation-delay: 0.15s; }
+    .card:nth-child(4) { animation-delay: 0.20s; }
+  </style>
+</head>
+<body>
+
+<!-- Install Banner -->
+<div id="install-banner">
+  <span>📲 Add to Home Screen for app experience</span>
+  <button id="install-btn">Install</button>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <div class="live-row"><div class="live-dot"></div><span class="live-label">Monitoring</span></div>
+    <h1>WiFi Speed</h1>
+    <div class="subtitle" id="subtitle">Loading data...</div>
+  </div>
+  <div>
+    <button class="upload-btn" onclick="document.getElementById('csv-input').click()">↑ Load CSV</button>
+    <input type="file" id="csv-input" accept=".csv" onchange="loadCSV(event)" />
+  </div>
+</div>
+
+<!-- Stat Cards -->
+<div class="cards">
+  <div class="card" style="--accent-color: #58a6ff;">
+    <div class="card-label">↓ Avg Download</div>
+    <div><span class="card-value" id="avg-dl" style="color:var(--blue)">--</span><span class="card-unit">Mbps</span></div>
+    <div class="card-sub" id="dl-range">--</div>
+  </div>
+  <div class="card" style="--accent-color: #3fb950;">
+    <div class="card-label">↑ Avg Upload</div>
+    <div><span class="card-value" id="avg-ul" style="color:var(--green)">--</span><span class="card-unit">Mbps</span></div>
+    <div class="card-sub" id="ul-range">--</div>
+  </div>
+  <div class="card" style="--accent-color: #e3b341;">
+    <div class="card-label">◉ Avg Ping</div>
+    <div><span class="card-value" id="avg-ping" style="color:var(--yellow)">--</span><span class="card-unit">ms</span></div>
+    <div class="card-sub" id="ping-sub">lower is better</div>
+  </div>
+  <div class="card" style="--accent-color: #3fb950;">
+    <div class="card-label">▲ Uptime</div>
+    <div><span class="card-value" id="uptime" style="color:var(--green)">--</span><span class="card-unit">%</span></div>
+    <div class="card-sub" id="slow-count">-- slow events</div>
+  </div>
+</div>
+
+<!-- Chart -->
+<div class="section">
+  <div class="section-title">Speed History</div>
+  <div class="toggle-row">
+    <button class="toggle-btn active-dl" id="btn-dl"  onclick="switchMetric('download')">↓ Download</button>
+    <button class="toggle-btn"           id="btn-ul"  onclick="switchMetric('upload')">↑ Upload</button>
+    <button class="toggle-btn"           id="btn-png" onclick="switchMetric('ping')">◉ Ping</button>
+  </div>
+  <div class="chart-wrap"><canvas id="speedChart"></canvas></div>
+  <div class="chart-legend">
+    <span><span class="dot" id="legend-dot" style="background:#58a6ff"></span>Normal</span>
+    <span><span class="dot" style="background:#f85149"></span>Slow / Below threshold</span>
+  </div>
+</div>
+
+<!-- Log Table -->
+<div class="section">
+  <div class="section-title">Recent Log</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>↓ DL</th>
+          <th>↑ UL</th>
+          <th>Ping</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="log-table"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="footer">
+  Load your wifi_speed_log.csv using the button above<br/>
+  Thresholds: ↓ 20 Mbps · ↑ 5 Mbps<br/>
+  PWA — add to home screen for app experience
+</div>
+
+<script>
+// ── SAMPLE DATA (shown until user loads CSV) ──────────────────────────────
+const SAMPLE = [
+  {t:"00:00",download:88.2,upload:22.1,ping:11,status:"OK"},
+  {t:"01:00",download:91.4,upload:23.5,ping:9,status:"OK"},
+  {t:"02:00",download:94.1,upload:24.0,ping:8,status:"OK"},
+  {t:"03:00",download:96.3,upload:25.1,ping:7,status:"OK"},
+  {t:"04:00",download:90.7,upload:22.8,ping:10,status:"OK"},
+  {t:"05:00",download:14.2,upload:3.8,ping:210,status:"SLOW"},
+  {t:"06:00",download:11.8,upload:2.9,ping:340,status:"SLOW"},
+  {t:"07:00",download:78.3,upload:19.4,ping:15,status:"OK"},
+  {t:"08:00",download:85.9,upload:21.7,ping:12,status:"OK"},
+  {t:"09:00",download:82.4,upload:20.3,ping:13,status:"OK"},
+  {t:"10:00",download:17.3,upload:4.1,ping:189,status:"SLOW"},
+  {t:"11:00",download:87.6,upload:22.0,ping:11,status:"OK"},
+  {t:"12:00",download:79.2,upload:18.9,ping:14,status:"OK"},
+  {t:"13:00",download:92.1,upload:23.2,ping:9,status:"OK"},
+  {t:"14:00",download:88.8,upload:21.5,ping:11,status:"OK"},
+  {t:"15:00",download:9.4,upload:1.8,ping:420,status:"SLOW"},
+  {t:"16:00",download:83.5,upload:20.8,ping:13,status:"OK"},
+  {t:"17:00",download:76.1,upload:17.9,ping:16,status:"OK"},
+  {t:"18:00",download:71.4,upload:16.2,ping:18,status:"OK"},
+  {t:"19:00",download:68.9,upload:15.8,ping:21,status:"OK"},
+  {t:"20:00",download:73.2,upload:17.1,ping:17,status:"OK"},
+  {t:"21:00",download:80.6,upload:19.7,ping:14,status:"OK"},
+  {t:"22:00",download:85.3,upload:21.2,ping:12,status:"OK"},
+  {t:"23:00",download:89.7,upload:22.6,ping:10,status:"OK"},
+];
+
+const MIN_DL = 20, MIN_UL = 5;
+let currentMetric = 'download';
+let chartInstance = null;
+let allData = SAMPLE;
+
+const METRIC_COLOR = { download:'#58a6ff', upload:'#3fb950', ping:'#e3b341' };
+const METRIC_UNIT  = { download:'Mbps', upload:'Mbps', ping:'ms' };
+const METRIC_MIN   = { download: MIN_DL, upload: MIN_UL, ping: null };
+
+// ── CSV LOADER ────────────────────────────────────────────────────────────
+function loadCSV(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const lines = ev.target.result.trim().split('\n');
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      if (cols.length < 5) continue;
+      rows.push({
+        t:        cols[0].trim().split(' ')[1] || cols[0].trim(),
+        download: parseFloat(cols[1]) || 0,
+        upload:   parseFloat(cols[2]) || 0,
+        ping:     parseFloat(cols[3]) || 0,
+        status:   cols[4].trim().toUpperCase(),
+      });
+    }
+    if (rows.length) {
+      allData = rows;
+      render();
+      document.getElementById('subtitle').textContent =
+        `Loaded: ${file.name} · ${rows.length} checks`;
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ── STATS ─────────────────────────────────────────────────────────────────
+function computeStats(data) {
+  const ok = data.filter(d => d.status === 'OK');
+  const avg = (arr, key) => (arr.reduce((s,d) => s + d[key], 0) / arr.length).toFixed(1);
+  const slowCount = data.filter(d => d.status === 'SLOW').length;
+  return {
+    avgDl:    avg(ok, 'download'),
+    avgUl:    avg(ok, 'upload'),
+    avgPing:  avg(ok, 'ping'),
+    minDl:    Math.min(...data.map(d => d.download)).toFixed(1),
+    maxDl:    Math.max(...data.map(d => d.download)).toFixed(1),
+    minUl:    Math.min(...data.map(d => d.upload)).toFixed(1),
+    maxUl:    Math.max(...data.map(d => d.upload)).toFixed(1),
+    slowCount,
+    uptime:   (((data.length - slowCount) / data.length) * 100).toFixed(0),
+  };
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────
+function render() {
+  const s = computeStats(allData);
+
+  document.getElementById('avg-dl').textContent   = s.avgDl;
+  document.getElementById('avg-ul').textContent   = s.avgUl;
+  document.getElementById('avg-ping').textContent = s.avgPing;
+  document.getElementById('uptime').textContent   = s.uptime;
+  document.getElementById('dl-range').textContent = `Min: ${s.minDl} / Max: ${s.maxDl}`;
+  document.getElementById('ul-range').textContent = `Min: ${s.minUl} / Max: ${s.maxUl}`;
+  document.getElementById('slow-count').textContent = `${s.slowCount} slow events`;
+
+  const upEl = document.getElementById('uptime');
+  upEl.style.color = s.uptime >= 90 ? 'var(--green)' : 'var(--red)';
+
+  renderChart();
+  renderTable();
+}
+
+// ── CHART ─────────────────────────────────────────────────────────────────
+function renderChart() {
+  const metric = currentMetric;
+  const color  = METRIC_COLOR[metric];
+  const min    = METRIC_MIN[metric];
+  const labels = allData.map(d => d.t);
+  const values = allData.map(d => d[metric]);
+
+  const pointColors = allData.map(d => {
+    if (metric === 'download' && d.download < MIN_DL) return '#f85149';
+    if (metric === 'upload'   && d.upload   < MIN_UL) return '#f85149';
+    return color;
+  });
+  const pointRadius = allData.map(d => {
+    if (metric === 'download' && d.download < MIN_DL) return 5;
+    if (metric === 'upload'   && d.upload   < MIN_UL) return 5;
+    return 3;
+  });
+
+  document.getElementById('legend-dot').style.background = color;
+
+  const annotations = {};
+  if (min) {
+    annotations.threshold = {
+      type: 'line',
+      yMin: min, yMax: min,
+      borderColor: color + '55',
+      borderWidth: 1,
+      borderDash: [6,3],
+    };
+  }
+
+  if (chartInstance) chartInstance.destroy();
+
+  const ctx = document.getElementById('speedChart').getContext('2d');
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor: color,
+        borderWidth: 2,
+        pointBackgroundColor: pointColors,
+        pointRadius: pointRadius,
+        pointHoverRadius: 6,
+        fill: true,
+        backgroundColor: (ctx) => {
+          const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 220);
+          g.addColorStop(0, color + '22');
+          g.addColorStop(1, color + '00');
+          return g;
+        },
+        tension: 0.4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0d1117',
+          borderColor: '#30363d',
+          borderWidth: 1,
+          titleColor: '#8b949e',
+          bodyColor: '#e6edf3',
+          padding: 10,
+          callbacks: {
+            label: (ctx) => ` ${ctx.parsed.y} ${METRIC_UNIT[metric]}`
+          }
+        },
+        annotation: { annotations }
+      },
+      scales: {
+        x: {
+          ticks: { color:'#8b949e', font:{ family:'JetBrains Mono', size:9 }, maxTicksLimit: 12 },
+          grid:  { color:'#21262d' },
+        },
+        y: {
+          ticks: {
+            color:'#8b949e', font:{ family:'JetBrains Mono', size:9 },
+            callback: v => v + (metric === 'ping' ? 'ms' : 'M')
+          },
+          grid: { color:'#21262d' },
+        }
+      }
+    }
+  });
+}
+
+// ── TABLE ─────────────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('log-table');
+  const rows  = [...allData].reverse().slice(0, 12);
+  tbody.innerHTML = rows.map(r => `
+    <tr class="${r.status === 'SLOW' ? 'slow-row' : ''}">
+      <td style="color:var(--muted)">${r.t}</td>
+      <td style="color:${r.download < MIN_DL ? 'var(--red)' : 'var(--blue)'}">${r.download}</td>
+      <td style="color:${r.upload   < MIN_UL ? 'var(--red)' : 'var(--green)'}">${r.upload}</td>
+      <td style="color:var(--yellow)">${r.ping}</td>
+      <td><span class="badge badge-${r.status === 'OK' ? 'ok' : 'slow'}">${r.status}</span></td>
+    </tr>
+  `).join('');
+}
+
+// ── METRIC TOGGLE ─────────────────────────────────────────────────────────
+function switchMetric(m) {
+  currentMetric = m;
+  document.getElementById('btn-dl').className  = 'toggle-btn' + (m==='download'?' active-dl':'');
+  document.getElementById('btn-ul').className  = 'toggle-btn' + (m==='upload'  ?' active-ul':'');
+  document.getElementById('btn-png').className = 'toggle-btn' + (m==='ping'    ?' active-png':'');
+  renderChart();
+}
+
+// ── PWA INSTALL ───────────────────────────────────────────────────────────
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('install-banner').style.display = 'flex';
+});
+document.getElementById('install-btn')?.addEventListener('click', async () => {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    document.getElementById('install-banner').style.display = 'none';
+  }
+});
+
+// ── SERVICE WORKER ────────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+document.getElementById('subtitle').textContent =
+  `Sample data · ${SAMPLE.length} checks · Load your CSV above`;
+render();
+</script>
+</body>
+</html>
